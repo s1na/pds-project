@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net"
+	//"net"
 	"net/http"
 	"os"
 
@@ -22,35 +20,6 @@ type Node struct {
 var serverPort string
 var network []Node
 
-func JoinCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	var data map[string]interface{}
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		panic(err)
-	}
-	if err := r.Body.Close(); err != nil {
-		panic(err)
-	}
-	if err := json.Unmarshal(body, &data); err != nil {
-		panic(err)
-	}
-	fmt.Println("Join req from: ", ip, ":", data["port"].(string))
-
-	newNode := Node{Addr: fmt.Sprint(ip, ":", data["port"].(string)), Master: false}
-	network = append(network, newNode)
-
-	//resD := map[string]string{"network": "test"}
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	if err := json.NewEncoder(w).Encode(network); err != nil {
-		panic(err)
-	}
-}
-
-func SignOffCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	fmt.Fprint(w, "signoff")
-}
-
 func client() {
 	app := cli.NewApp()
 	app.Name = "PDS Project"
@@ -65,9 +34,8 @@ func client() {
 
 	app.Action = func(c *cli.Context) {
 		serverPort = c.String("port")
-		selfAddr := fmt.Sprint("localhost:", serverPort)
 		network = make([]Node, 1)
-		network[0] = Node{Addr: selfAddr, Master: false}
+		network[0] = Node{Addr: getLocalAddr(), Master: false}
 
 		ch := make(chan string)
 		go server(ch)
@@ -79,27 +47,36 @@ func client() {
 			fmt.Print(">> ")
 			fmt.Scanln(&cmd, &arg1)
 
-			if cmd == "exit" {
-				break
+			if cmd == "exit" || cmd == "signoff" {
+				for i, n := range network {
+					if n.Addr == getLocalAddr() {
+						network[i] = network[len(network)-1]
+						network = network[:len(network)-1]
+						break
+					}
+				}
+				fmt.Println(network)
+				for _, n := range network {
+					networkUpdateReq(n.Addr, network)
+				}
+				network = nil
+				network = append(network, Node{Addr: getLocalAddr(), Master: false})
+				if cmd == "exit" {
+					break
+				}
 			} else if cmd == "join" {
 				if arg1 == "" {
 					panic("No reference node given.")
 				}
-				endpoint := fmt.Sprint(arg1, "/", "join")
-				data := map[string]string{"port": serverPort}
-				msg, _ := json.Marshal(data)
-				resp, err := http.Post(endpoint, "application/json", bytes.NewBuffer(msg))
-				if err != nil {
-					panic(err)
-				}
-				fmt.Println(resp.Body)
-				resBody, _ := ioutil.ReadAll(resp.Body)
+				resBody := joinReq(arg1, getLocalAddr())
 				//var resData map[string]interface{}
 				network = nil // TODO GC?
 				if err := json.Unmarshal(resBody, &network); err != nil {
 					panic(err)
 				}
 				fmt.Println(network[0].Addr, network[1].Addr)
+			} else if cmd == "list" {
+				fmt.Println(network)
 			}
 		}
 	}
@@ -110,7 +87,7 @@ func client() {
 func server(ch chan string) {
 	router := httprouter.New()
 	router.POST("/join", JoinCtrl)
-	router.GET("/signoff", SignOffCtrl)
+	router.POST("/network/update", NetworkUpdateCtrl)
 
 	port := fmt.Sprint(":", serverPort)
 	log.Fatal(http.ListenAndServe(port, router))
