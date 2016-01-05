@@ -48,3 +48,12 @@ func networkUpdateReq(dest string, network []Node) []byte {
 	resBody, _ := ioutil.ReadAll(resp.Body)
 	return resBody
 }
+
+func coordinatorReq(dest string) {
+	data := map[string]string{"addr": getLocalAddr()}
+	msg, _ := json.Marshal(data)
+	_, err := http.Post(fmt.Sprint(dest, "/coordinator"), "application/json", bytes.NewBuffer(msg))
+	if err != nil {
+		panic(err)
+	}
+}
