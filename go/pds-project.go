@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	//"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/codegangsta/cli"
 	"github.com/julienschmidt/httprouter"
@@ -19,9 +21,10 @@ type Node struct {
 }
 
 var serverPort string
-var selfID int
 var network []Node
+var selfNode *Node
 var masterNode *Node
+var masterSharedData string
 
 func client() {
 	app := cli.NewApp()
@@ -39,7 +42,7 @@ func client() {
 		serverPort = c.String("port")
 		network = make([]Node, 1)
 		network[0] = Node{ID: 0, Addr: getLocalAddr(), Master: false}
-		selfID = 0
+		selfNode = &network[0]
 
 		ch := make(chan string)
 		go server(ch)
@@ -78,40 +81,26 @@ func client() {
 				if err := json.Unmarshal(resBody, &network); err != nil {
 					panic(err)
 				}
-				selfID = network[len(network)-1].ID
+				selfNode = &network[len(network)-1]
 				fmt.Println(network[0].Addr, network[1].Addr)
 			} else if cmd == "list" {
 				fmt.Println(network)
 			} else if cmd == "start" {
-				// Hold election
-				won := true
-				fmt.Println(selfID)
+				startElection()
+
+				// Send start msg
 				for _, n := range network {
-					if n.ID > selfID {
-						fmt.Println("Sending election for ", n.ID)
-						_, err := http.Get(fmt.Sprint(n.Addr, "/election"))
-						if err != nil {
-							panic(err)
-						} else {
-							won = false
-							break
-						}
-					}
-				}
-				if won {
-					for i, n := range network {
-						if n.Addr == getLocalAddr() {
-							fmt.Println("Setting self as master => ", n.Addr)
-							network[i].Master = true
-							masterNode = &network[i]
-						} else {
-							fmt.Println("Sending coordinator for ", n.Addr)
-							coordinatorReq(n.Addr)
-						}
+					if n.Addr != selfNode.Addr {
+						go func(addr string) {
+							_, err := http.Get(fmt.Sprint(addr, "/start"))
+							if err != nil {
+								fmt.Println(err)
+							}
+						}(n.Addr)
 					}
 				}
 
-				// Send start msg
+				distributedRW()
 			}
 		}
 	}
@@ -122,14 +111,19 @@ func client() {
 func server(ch chan string) {
 	router := httprouter.New()
 	router.GET("/election", ElectionCtrl)
+	router.GET("/start", StartCtrl)
+	router.GET("/read", ReadCtrl)
 	router.POST("/coordinator", CoordinatorCtrl)
 	router.POST("/join", JoinCtrl)
 	router.POST("/network/update", NetworkUpdateCtrl)
+	router.POST("/write", WriteCtrl)
 
 	port := fmt.Sprint(":", serverPort)
 	log.Fatal(http.ListenAndServe(port, router))
 }
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
+	masterSharedData = "PDS"
 	client()
 }
