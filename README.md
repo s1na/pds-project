@@ -22,7 +22,12 @@ and Java.
 	+ `go get github.com/codegangsta/cli`
 	+ `go get github.com/julienschmidt/httprouter`
 
-### Run the code
+### Build the code
 
 - `go build`
 
+### Run the program:
+
+- Execute `./go`
+    + Without parameters by default it takes the port 8080: `./go`
+    + It is possible to specify the port: `./go -p 8081`

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	//"net"
 	"net/http"
 	"os"
 	"time"
@@ -40,14 +39,17 @@ func client() {
 
 	app.Action = func(c *cli.Context) {
 		serverPort = c.String("port")
+
 		network = make([]Node, 1)
 		network[0] = Node{ID: 0, Addr: getLocalAddr(), Master: false}
 		selfNode = &network[0]
 
 		ch := make(chan string)
+
 		go server(ch)
 
 		for {
+
 			var cmd string
 			var arg1 string
 
@@ -72,9 +74,11 @@ func client() {
 					break
 				}
 			} else if cmd == "join" {
+
 				if arg1 == "" {
 					panic("No reference node given.")
 				}
+
 				resBody := joinReq(arg1, getLocalAddr())
 				//var resData map[string]interface{}
 				network = nil // TODO GC?
@@ -83,6 +87,7 @@ func client() {
 				}
 				selfNode = &network[len(network)-1]
 				fmt.Println(network[0].Addr, network[1].Addr)
+
 			} else if cmd == "list" {
 				fmt.Println(network)
 			} else if cmd == "start" {
@@ -99,8 +104,9 @@ func client() {
 						}(n.Addr)
 					}
 				}
-
 				distributedRW()
+			} else if cmd != "" {
+				fmt.Println("Unknown command")
 			}
 		}
 	}
