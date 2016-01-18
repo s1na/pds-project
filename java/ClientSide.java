@@ -22,8 +22,8 @@ public class ClientSide {
 
     public void connect() throws UnknownHostException, IOException{
 
-        socketClient = new Socket(hostname,port);
-        System.out.println("Connected to "+hostname+":"+port);
+        socketClient = new Socket(hostname, port);
+        System.out.println("Connected to " + hostname + ":" + port);
 
     }
 

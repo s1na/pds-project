@@ -31,3 +31,9 @@ and Java.
 - Execute `./go`
     + Without parameters by default it takes the port 8080: `./go`
     + It is possible to specify the port: `./go -p 8081`
+
+## Java
+
+Using the external libraries:
+
+- Commons CLI for Apache.

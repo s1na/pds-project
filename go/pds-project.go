@@ -39,17 +39,14 @@ func client() {
 
 	app.Action = func(c *cli.Context) {
 		serverPort = c.String("port")
-
 		network = make([]Node, 1)
 		network[0] = Node{ID: 0, Addr: getLocalAddr(), Master: false}
 		selfNode = &network[0]
 
 		ch := make(chan string)
-
 		go server(ch)
 
 		for {
-
 			var cmd string
 			var arg1 string
 
