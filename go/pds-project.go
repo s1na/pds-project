@@ -21,10 +21,14 @@ type Node struct {
 }
 
 var serverPort string
+var syncAlgorithm string
 var network []Node
 var selfNode *Node
 var masterNode *Node
 var masterSharedData string
+var masterResourceControl chan string
+var masterResourceData chan string
+var masterCurNode string
 
 func client() {
 	app := cli.NewApp()
@@ -36,9 +40,19 @@ func client() {
 			Value: "8080",
 			Usage: "Port for incoming requests",
 		},
+		cli.StringFlag{
+			Name:  "sync, s",
+			Value: "centralized",
+			Usage: "Synchronization algorithm used, either centralized or ra (Ricart & Agrawala).",
+		},
 	}
 
 	app.Action = func(c *cli.Context) {
+		syncAlgorithm = c.String("sync")
+		if syncAlgorithm != "centralized" && syncAlgorithm != "ra" {
+			fmt.Println("Sync algorithm not supported, use centralized or ra (Ricard & Agrawala).")
+			return
+		}
 		serverPort = c.String("port")
 		network = make([]Node, 1)
 		network[0] = Node{ID: 0, Addr: getLocalAddr(), Master: false}
@@ -113,10 +127,14 @@ func server(ch chan string) {
 	router.GET("/election", ElectionCtrl)
 	router.GET("/start", StartCtrl)
 	router.GET("/read", ReadCtrl)
+	router.GET("/sync/centralized/req", CentralizedReqCtrl)
+	router.GET("/sync/centralized/release", CentralizedReleaseCtrl)
 	router.POST("/coordinator", CoordinatorCtrl)
 	router.POST("/join", JoinCtrl)
 	router.POST("/network/update", NetworkUpdateCtrl)
 	router.POST("/write", WriteCtrl)
+
+	// After start
 
 	port := fmt.Sprint(":", serverPort)
 	log.Fatal(http.ListenAndServe(port, router))

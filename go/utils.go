@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"net"
 	"net/http"
@@ -50,6 +48,13 @@ func startElection() {
 				fmt.Println("Setting self as master => ", n.Addr)
 				network[i].Master = true
 				masterNode = &network[i]
+
+				if syncAlgorithm == "centralized" {
+					masterResourceControl = make(chan string)
+					masterResourceData = make(chan string)
+					masterCurNode = ""
+					go centralizedResourceManager()
+				}
 			} else {
 				fmt.Println("Sending coordinator for ", n.Addr)
 				coordinatorReq(n.Addr)
@@ -75,66 +80,58 @@ func distributedRW() {
 			duration := rand.Intn(10)
 			fmt.Println("Sleeping for ", duration)
 			time.Sleep(time.Duration(duration) * time.Second)
-			resBody := readDataReq(masterNode.Addr)
-			var data map[string]string
-			if err := json.Unmarshal(resBody, &data); err != nil {
-				panic(err)
+
+			if syncAlgorithm == "centralized" {
+				resBody := syncCentralizedReq(masterNode.Addr)
+				var data map[string]interface{}
+				if err := json.Unmarshal(resBody, &data); err != nil {
+					panic(err)
+				}
+				if !data["ok"].(bool) {
+					panic(data["err"].(string))
+				}
+
+				resBody = readDataReq(masterNode.Addr)
+				//var data map[string]string
+				if err := json.Unmarshal(resBody, &data); err != nil {
+					panic(err)
+				}
+				shData := data["data"].(string)
+				fmt.Println("Current data, ", shData)
+				shData = shData + randStringBytes(4)
+				writeDataReq(masterNode.Addr, shData)
+
+				resBody = syncCentralizedRelease(masterNode.Addr)
+				//var data map[string]interface{}
+				if err := json.Unmarshal(resBody, &data); err != nil {
+					panic(err)
+				}
+				if !data["ok"].(bool) {
+					panic(data["err"].(string))
+				}
 			}
-			shData := data["data"]
-			fmt.Println("Current data, ", shData)
-			shData = shData + randStringBytes(4)
-			writeDataReq(masterNode.Addr, shData)
 		}
 	}
 
 }
 
-func joinReq(dest string, selfAddr string) []byte {
-	data := map[string]string{"addr": selfAddr}
-	msg, _ := json.Marshal(data)
-	resp, err := http.Post(fmt.Sprint(dest, "/join"), "application/json", bytes.NewBuffer(msg))
-	if err != nil {
-		panic(err)
+func centralizedResourceManager() {
+	for {
+		cmd := <-masterResourceControl
+		if cmd == "req" {
+			for {
+				d := <-masterResourceData
+				if d == "read" {
+					masterResourceData <- masterSharedData
+				} else if d == "write" {
+					masterSharedData = <-masterResourceData
+				} else if d == "release" {
+					break
+				} else {
+					fmt.Println("Resource manager received unknown msg, abort.")
+					break
+				}
+			}
+		}
 	}
-	resBody, _ := ioutil.ReadAll(resp.Body)
-	return resBody
-}
-
-func networkUpdateReq(dest string, network []Node) []byte {
-	msg, _ := json.Marshal(network)
-	resp, err := http.Post(fmt.Sprint(dest, "/network/update"), "application/json", bytes.NewBuffer(msg))
-	if err != nil {
-		panic(err)
-	}
-	resBody, _ := ioutil.ReadAll(resp.Body)
-	return resBody
-}
-
-func coordinatorReq(dest string) {
-	data := map[string]string{"addr": getLocalAddr()}
-	msg, _ := json.Marshal(data)
-	_, err := http.Post(fmt.Sprint(dest, "/coordinator"), "application/json", bytes.NewBuffer(msg))
-	if err != nil {
-		panic(err)
-	}
-}
-
-func readDataReq(dest string) []byte {
-	resp, err := http.Get(fmt.Sprint(dest, "/read"))
-	if err != nil {
-		panic(err)
-	}
-	resBody, _ := ioutil.ReadAll(resp.Body)
-	return resBody
-}
-
-func writeDataReq(dest string, shData string) []byte {
-	data := map[string]string{"data": shData}
-	msg, _ := json.Marshal(data)
-	resp, err := http.Post(fmt.Sprint(dest, "/write"), "application/json", bytes.NewBuffer(msg))
-	if err != nil {
-		panic(err)
-	}
-	resBody, _ := ioutil.ReadAll(resp.Body)
-	return resBody
 }

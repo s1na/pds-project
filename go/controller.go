@@ -96,8 +96,18 @@ func StartCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 }
 
 func ReadCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	data := map[string]string{"data": masterSharedData}
+	data := map[string]interface{}{"ok": true, "err": "", "data": ""}
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+
+	if r.RemoteAddr == masterCurNode {
+		masterResourceData <- "read"
+		d := <-masterResourceData
+		data["data"] = d
+	} else {
+		data["ok"] = false
+		data["err"] = "Permission Denied."
+	}
+
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		panic(err)
 	}
@@ -116,5 +126,46 @@ func WriteCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		panic(err)
 	}
 
-	masterSharedData = data["data"].(string)
+	resData := map[string]interface{}{"ok": true, "err": ""}
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+
+	if r.RemoteAddr == masterCurNode {
+		masterResourceData <- "write"
+		masterResourceData <- data["data"].(string)
+	} else {
+		resData["ok"] = false
+		resData["err"] = "Permission Denied."
+	}
+
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		panic(err)
+	}
+}
+
+func CentralizedReqCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	data := map[string]interface{}{"ok": true, "err": ""}
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+
+	masterResourceControl <- "req"
+	masterCurNode = r.RemoteAddr
+
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		panic(err)
+	}
+}
+
+func CentralizedReleaseCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	data := map[string]interface{}{"ok": true, "err": ""}
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+
+	if masterCurNode == r.RemoteAddr {
+		masterResourceData <- "release"
+	} else {
+		data["ok"] = false
+		data["err"] = "Permission Denied."
+	}
+
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		panic(err)
+	}
 }
