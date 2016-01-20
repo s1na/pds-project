@@ -26,3 +26,6 @@ _testmain.go
 *.swp
 *.swo
 pds-project
+
+# Ignore Java class
+*.class
