@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/codegangsta/cli"
@@ -23,11 +24,17 @@ var serverPort string
 var syncAlgorithm string
 var network []Node
 var selfNode *Node
+var lc *LamportClock
+var accessStatus int
+var accessClock *LamportClock
+var accessCond *sync.Cond
 var masterNode *Node
 var masterSharedData string
 var masterResourceControl chan string
 var masterResourceData chan string
 var masterCurNode string
+var masterFinishCond *sync.Cond
+var masterFinished int
 
 func client() {
 	app := cli.NewApp()
@@ -115,7 +122,9 @@ func client() {
 						}(n.Addr)
 					}
 				}
-				distributedRW()
+				if syncAlgorithm != "centralized" || masterNode != selfNode {
+					distributedRW()
+				}
 			} else if cmd != "" {
 				fmt.Println("Unknown command")
 			}
@@ -129,6 +138,7 @@ func server(ch chan string) {
 	router := httprouter.New()
 	router.GET("/election", ElectionCtrl)
 	router.GET("/start", StartCtrl)
+	router.GET("/finish", FinishCtrl)
 	router.GET("/read", ReadCtrl)
 	router.GET("/sync/centralized/req", CentralizedReqCtrl)
 	router.GET("/sync/centralized/release", CentralizedReleaseCtrl)
@@ -136,6 +146,7 @@ func server(ch chan string) {
 	router.POST("/join", JoinCtrl)
 	router.POST("/network/update", NetworkUpdateCtrl)
 	router.POST("/write", WriteCtrl)
+	router.POST("/sync/ra/req", RAReqCtrl)
 
 	// After start
 
