@@ -5,24 +5,58 @@ import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.ParseException;
 
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
-
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.GsonBuilder;
 
-import java.util.Scanner;
+import com.sun.net.httpserver.*;
 
-class Node {
-    String ip = "100";
-}
+import java.net.InetSocketAddress;
+import java.net.URLDecoder;
+import java.util.Scanner;
+import java.util.ArrayList;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.Reader;
+
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 public class Main {
 
-    /* JSON request over HTTP */
-    //public static void requestJSONHttp(String address) throws Exception {
+    public static ArrayList<Node> network = new ArrayList<Node>();
+
+    /* HttpHandlers */
+    static class JoinCtrl implements HttpHandler {
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+
+            InputStream requestBody = exchange.getRequestBody();
+            Reader reader = new InputStreamReader(requestBody, "UTF-8");
+            Node node = new Gson().fromJson(reader, Node.class);
+
+            /* add node to the network */
+            network.add(node);
+
+            /* Send notification of update to the rest of the nodes */
+            for (Node net: network) {
+                System.out.println(net.getID());
+                System.out.println(net.getAddress());
+            }
+
+            /*
+            exchange.sendResponseHeaders(200, 0);
+            exchange.close();
+            */
+
+        }
+    }
+
+    /* JSON request over HTTP 
     public static void requestJSONHttp(String address) {
 
         CloseableHttpClient httpClient = HttpClients.createDefault();
@@ -30,9 +64,42 @@ public class Main {
         httppost.setHeader("Content-Type", "application/json");
 
         Gson gson = new GsonBuilder().create();
-        Node myNode = new Node();
+        Node myNode = new Node(0, "", false);
 
         httppost.setEntity(new StringEntity(gson.toJson(myNode), "UTF-8"));
+
+    }
+    */
+
+    public static void requestJSONHttp(String address) {
+
+        String json = "{\"addr\": \"http://192.168.71.43:8080\"}";
+
+        try {
+
+
+            URL url = new URL(address);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+            conn.setDoOutput(true);
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            //con.setRequestProperty("Accept", "application/json");
+            
+            OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream());
+            writer.write(json);
+            writer.close();
+
+
+            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                System.out.println("OK");
+            } else {
+                System.out.println("Not OK");
+            }
+
+        } catch (IOException ex) {
+            System.err.println(ex);
+        }
 
     }
 
@@ -56,6 +123,18 @@ public class Main {
             System.err.println("Parsing failed. Reason " + exp.getMessage() );
         }
 
+
+        try {
+
+            HttpServer server = HttpServer.create(new InetSocketAddress(port) ,0);
+            server.createContext("/join", new JoinCtrl() );
+            server.setExecutor(null);
+            server.start();
+            //System.out.println(server.getAddress());
+
+        } catch (IOException ex) {
+            System.out.print(ex);
+        }
 
         while(alive) {
             System.out.print(">>> ");
