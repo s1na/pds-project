@@ -2,11 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
+	//"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -23,7 +24,10 @@ func JoinCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	if err := json.Unmarshal(body, &data); err != nil {
 		panic(err)
 	}
-	fmt.Println("Join req from: ", data["addr"].(string))
+	log.WithFields(logrus.Fields{
+		"RemoteAddr": data["addr"].(string),
+		"NetworkLen": len(network),
+	}).Info("Received join request")
 
 	var id int = 0
 	for _, n := range network {
@@ -39,10 +43,8 @@ func JoinCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		panic(err)
 	}
 
-	fmt.Println("Sending updates")
 	for _, n := range network {
 		if n.Addr != newNode.Addr && n.Addr != net.JoinHostPort(getLocalIP(), serverPort) {
-			fmt.Println("Sending update for ", n.Addr)
 			networkUpdateReq(n.Addr, network)
 		}
 	}
@@ -59,7 +61,6 @@ func NetworkUpdateCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Para
 	if err := json.Unmarshal(body, &network); err != nil {
 		panic(err)
 	}
-	fmt.Println("Network updated.")
 }
 
 func ElectionCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -79,10 +80,9 @@ func CoordinatorCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params
 		panic(err)
 	}
 
-	fmt.Println(data)
 	for i, n := range network {
 		if n.Addr == data["addr"] {
-			fmt.Println("Setting coordinator ", data["addr"])
+			log.WithFields(logrus.Fields{"Addr": data["addr"]}).Info("Setting coordinator ", data["addr"])
 			network[i].Master = true
 			masterNode = &network[i]
 		}
@@ -90,22 +90,47 @@ func CoordinatorCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params
 }
 
 func StartCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	fmt.Println("Start.")
+	log.Info("Start Distributed Read/Write")
 
-	distributedRW()
+	go distributedRW()
+}
+
+func FinishCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	masterFinishCond.L.Lock()
+	masterFinished++
+	boundary := len(network) - 1
+	if syncAlgorithm == "ra" {
+		boundary = len(network)
+	}
+	if masterFinished == boundary {
+		masterFinishCond.Broadcast()
+	} else {
+		masterFinishCond.Wait()
+	}
+	masterFinishCond.L.Unlock()
+	data := map[string]interface{}{"ok": true, "err": "", "data": masterSharedData}
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		panic(err)
+	}
 }
 
 func ReadCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	data := map[string]interface{}{"ok": true, "err": "", "data": ""}
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	if r.RemoteAddr == masterCurNode {
-		masterResourceData <- "read"
-		d := <-masterResourceData
-		data["data"] = d
-	} else {
-		data["ok"] = false
-		data["err"] = "Permission Denied."
+	if syncAlgorithm == "centralized" {
+		if r.RemoteAddr == masterCurNode {
+			masterResourceData <- "read"
+			d := <-masterResourceData
+			data["data"] = d
+		} else {
+			data["ok"] = false
+			data["err"] = "Permission Denied."
+		}
+	} else if syncAlgorithm == "ra" {
+		data["data"] = masterSharedData
 	}
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
@@ -129,12 +154,16 @@ func WriteCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	resData := map[string]interface{}{"ok": true, "err": ""}
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	if r.RemoteAddr == masterCurNode {
-		masterResourceData <- "write"
-		masterResourceData <- data["data"].(string)
-	} else {
-		resData["ok"] = false
-		resData["err"] = "Permission Denied."
+	if syncAlgorithm == "centralized" {
+		if r.RemoteAddr == masterCurNode {
+			masterResourceData <- "write"
+			masterResourceData <- data["data"].(string)
+		} else {
+			resData["ok"] = false
+			resData["err"] = "Permission Denied."
+		}
+	} else if syncAlgorithm == "ra" {
+		masterSharedData = data["data"].(string)
 	}
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
@@ -166,6 +195,64 @@ func CentralizedReleaseCtrl(w http.ResponseWriter, r *http.Request, _ httprouter
 	}
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
+		panic(err)
+	}
+}
+
+func RAReqCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var data map[string]json.RawMessage
+	requesterLC := &LamportClock{}
+	requesterAccessClock := &LamportClock{}
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		panic(err)
+	}
+	if err := r.Body.Close(); err != nil {
+		panic(err)
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
+		panic(err)
+	}
+	if err := json.Unmarshal(data["lc"], requesterLC); err != nil {
+		panic(err)
+	}
+	if err := json.Unmarshal(data["accessClock"], requesterAccessClock); err != nil {
+		panic(err)
+	}
+
+	//requesterLC.Counter = data["lc"]["counter"].(uint64)
+	//requesterLC.ID = data["lc"]["id"].(int)
+	//requesterAccessClock.Counter = data["accessClock"]["counter"].(uint64)
+	//requesterAccessClock.ID = data["accessClock"]["id"].(int)
+	//lc.Set(uint64(math.Max(float64(lc.Counter), float64(requesterLC.Counter))) + 1)
+	lc.Recv(requesterLC.Counter)
+
+	log.WithFields(logrus.Fields{
+		"ID":             lc.ID,
+		"AccessStatus":   accessStatus,
+		"LC":             lc.Counter,
+		"AccessClock":    accessClock.Counter,
+		"ReqID":          requesterLC.ID,
+		"ReqLC":          requesterLC.Counter,
+		"ReqAccessClock": requesterAccessClock.Counter,
+	}).Info("Received request for resource from ", r.RemoteAddr)
+
+	if accessStatus == 2 {
+		accessCond.L.Lock()
+		accessCond.Wait()
+		accessCond.L.Unlock()
+	} else if accessStatus == 1 {
+		if accessClock.Compare(requesterAccessClock) == -1 {
+			accessCond.L.Lock()
+			accessCond.Wait()
+			accessCond.L.Unlock()
+		}
+	}
+
+	resData := map[string]interface{}{"ok": true, "err": "", "lc": lc}
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+
+	if err := json.NewEncoder(w).Encode(resData); err != nil {
 		panic(err)
 	}
 }

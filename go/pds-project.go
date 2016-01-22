@@ -3,12 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"math/rand"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/codegangsta/cli"
 	"github.com/julienschmidt/httprouter"
 )
@@ -19,15 +20,22 @@ type Node struct {
 	Master bool   `json:"master"`
 }
 
+var log = logrus.New()
 var serverPort string
 var syncAlgorithm string
 var network []Node
 var selfNode *Node
+var lc *LamportClock
+var accessStatus int
+var accessClock *LamportClock
+var accessCond *sync.Cond
 var masterNode *Node
 var masterSharedData string
 var masterResourceControl chan string
 var masterResourceData chan string
 var masterCurNode string
+var masterFinishCond *sync.Cond
+var masterFinished int
 
 func client() {
 	app := cli.NewApp()
@@ -49,7 +57,7 @@ func client() {
 	app.Action = func(c *cli.Context) {
 		syncAlgorithm = c.String("sync")
 		if syncAlgorithm != "centralized" && syncAlgorithm != "ra" {
-			fmt.Println("Sync algorithm not supported, use centralized or ra (Ricard & Agrawala).")
+			log.Fatal("Sync algorithm not supported, use centralized or ra (Ricard & Agrawala).")
 			return
 		}
 		serverPort = c.String("port")
@@ -97,7 +105,6 @@ func client() {
 					panic(err)
 				}
 				selfNode = &network[len(network)-1]
-				fmt.Println(network[0].Addr, network[1].Addr)
 
 			} else if cmd == "list" {
 				fmt.Println(network)
@@ -115,7 +122,9 @@ func client() {
 						}(n.Addr)
 					}
 				}
-				distributedRW()
+				if syncAlgorithm != "centralized" || masterNode != selfNode {
+					distributedRW()
+				}
 			} else if cmd != "" {
 				fmt.Println("Unknown command")
 			}
@@ -129,6 +138,7 @@ func server(ch chan string) {
 	router := httprouter.New()
 	router.GET("/election", ElectionCtrl)
 	router.GET("/start", StartCtrl)
+	router.GET("/finish", FinishCtrl)
 	router.GET("/read", ReadCtrl)
 	router.GET("/sync/centralized/req", CentralizedReqCtrl)
 	router.GET("/sync/centralized/release", CentralizedReleaseCtrl)
@@ -136,6 +146,7 @@ func server(ch chan string) {
 	router.POST("/join", JoinCtrl)
 	router.POST("/network/update", NetworkUpdateCtrl)
 	router.POST("/write", WriteCtrl)
+	router.POST("/sync/ra/req", RAReqCtrl)
 
 	// After start
 
@@ -146,5 +157,7 @@ func server(ch chan string) {
 func main() {
 	rand.Seed(time.Now().UnixNano())
 	masterSharedData = "PDS"
+	log.Level = logrus.DebugLevel
+	log.Formatter.(*logrus.TextFormatter).FullTimestamp = true
 	client()
 }
