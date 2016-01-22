@@ -12,71 +12,182 @@ import com.google.gson.GsonBuilder;
 
 import com.sun.net.httpserver.*;
 
+import java.net.NetworkInterface;
 import java.net.InetSocketAddress;
+import java.net.InetAddress;
 import java.net.URLDecoder;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.BindException;
+import java.net.UnknownHostException;
+
 import java.util.Scanner;
 import java.util.ArrayList;
-import java.io.IOException;
+import java.util.Enumeration;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
+import java.io.Reader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.io.Reader;
+import java.io.IOException;
+import java.io.BufferedReader;
 
-import java.net.HttpURLConnection;
-import java.net.URL;
 
 public class Main {
 
     public static ArrayList<Node> network = new ArrayList<Node>();
+    public static int port = 8080;
+
+    public static String address= "http://192.168.71.43";
+
+    public static boolean alive = true;
+    public static HttpServer server = null;
+
+
+    private static InetAddress getInetAddress() {
+
+        InetAddress ia = null;
+
+        try {
+
+            /*
+            Enumeration e = NetworkInterface.getNetworkInterfaces();
+
+            while(e.hasMoreElements())
+            {
+                NetworkInterface n = (NetworkInterface) e.nextElement();
+                Enumeration ee = n.getInetAddresses();
+
+                while (ee.hasMoreElements())
+                {
+                    InetAddress i = (InetAddress) ee.nextElement();
+                    System.out.println(i.getHostAddress());
+                }
+            }
+            */
+
+            NetworkInterface n = NetworkInterface.getByName("eth0");
+            Enumeration ee = n.getInetAddresses();
+
+            while (ee.hasMoreElements()) {
+                ia = (InetAddress) ee.nextElement();
+            }
+
+        } catch (Exception e) {
+            System.err.println("Port " + port + " is already in use" );
+            System.exit(0);
+        }
+
+        return ia;
+    }
+
+    /* Auxiliary functions */
+    private static String getString(InputStream is) {
+
+        BufferedReader br = null;
+        StringBuilder sb = new StringBuilder();
+        String line;
+
+        try {
+
+            br = new BufferedReader(new InputStreamReader(is));
+            while ((line = br.readLine()) != null) {
+                sb.append(line);
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (br != null) {
+                try {
+                    br.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /* List known nodes */
+    private static void listNodes() {
+        for (Node net: network) {
+            
+            System.out.println();
+            System.out.println("ID -> "  + net.getID());
+            System.out.println("  Address -> " + net.getAddress());
+            System.out.println("  Master -> " + net.isMaster());
+
+        }
+    }
 
     /* HttpHandlers */
-    static class JoinCtrl implements HttpHandler {
+    /* JoinCtrl */
+    private static class JoinCtrl implements HttpHandler {
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
 
             InputStream requestBody = exchange.getRequestBody();
+            //System.out.println("->  " + getString(requestBody)); 
             Reader reader = new InputStreamReader(requestBody, "UTF-8");
             Node node = new Gson().fromJson(reader, Node.class);
 
             /* add node to the network */
             network.add(node);
 
-            /* Send notification of update to the rest of the nodes */
+            /* Send notifications of update to the rest of the nodes */
             for (Node net: network) {
+
+                if (!net.getAddress().equals(node.getAddress()) && 
+                    !net.getAddress().equals(network.get(0).getAddress())) {
+
+                    System.out.println("Sending update for " + net.getAddress());
+                    networkUpdateReq(net.getAddress());
+
+                }
+
                 System.out.println(net.getID());
                 System.out.println(net.getAddress());
             }
 
-            /*
             exchange.sendResponseHeaders(200, 0);
             exchange.close();
-            */
 
         }
     }
 
-    /* JSON request over HTTP 
-    public static void requestJSONHttp(String address) {
+    /* NetworkUpdateCtrl */
+    private static class NetworkUpdateCtrl implements HttpHandler {
 
-        CloseableHttpClient httpClient = HttpClients.createDefault();
-        HttpPost httppost = new HttpPost(address);
-        httppost.setHeader("Content-Type", "application/json");
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
 
-        Gson gson = new GsonBuilder().create();
-        Node myNode = new Node(0, "", false);
+            InputStream requestBody = exchange.getRequestBody();
+            System.out.println("->  " + getString(requestBody)); 
+            Reader reader = new InputStreamReader(requestBody, "UTF-8");
 
-        httppost.setEntity(new StringEntity(gson.toJson(myNode), "UTF-8"));
+            Node node = new Gson().fromJson(reader, Node.class);
 
+            System.out.println( );
+
+            /* add nodes to the network */
+            // network.add(node);
+
+            exchange.sendResponseHeaders(200, 0);
+            exchange.close();
+
+        }
     }
-    */
 
-    public static void requestJSONHttp(String address) {
+    public static void joinReq(String address) {
 
-        String json = "{\"addr\": \"http://192.168.71.43:8080\"}";
+        /* get first node */
+        String json = "{\"addr\": \"" + network.get(0).getAddress() + "\"}";
 
         try {
-
 
             URL url = new URL(address);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -84,12 +195,43 @@ public class Main {
             conn.setDoOutput(true);
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            //con.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("Accept", "application/json");
             
             OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream());
             writer.write(json);
             writer.close();
 
+            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                System.out.println("OK");
+            } else {
+                System.out.println("Not OK");
+            }
+
+        } catch (IOException ex) {
+            System.err.println(ex);
+        }
+
+    }
+
+    /* Different logic implementation in Go */
+    public static void networkUpdateReq(String address) {
+
+        /* get first node */
+        String json = "{\"addr\": \"" + network.get(0).getAddress() + "\"}";
+
+        try {
+
+            URL url = new URL(address);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+            conn.setDoOutput(true);
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setRequestProperty("Accept", "application/json");
+            
+            OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream());
+            writer.write(json);
+            writer.close();
 
             if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
                 System.out.println("OK");
@@ -104,9 +246,6 @@ public class Main {
     }
 
     public static void main(String[] args) {
-
-        int port = 8080;
-        boolean alive = true;
 
         Options options = new Options();
         options.addOption("p", "port", true, "Port");
@@ -123,42 +262,60 @@ public class Main {
             System.err.println("Parsing failed. Reason " + exp.getMessage() );
         }
 
-
+        /* Server Side */
         try {
 
-            HttpServer server = HttpServer.create(new InetSocketAddress(port) ,0);
-            server.createContext("/join", new JoinCtrl() );
-            server.setExecutor(null);
-            server.start();
-            //System.out.println(server.getAddress());
+            InetAddress ia = getInetAddress();
+            server = HttpServer.create(new InetSocketAddress(ia, port) ,0);
 
+            server.createContext("/join", new JoinCtrl() );
+            server.createContext("/network/update", new NetworkUpdateCtrl() );
+
+            /* Listener */
+            server.setExecutor(Executors.newFixedThreadPool(20));
+            //server.setExecutor(Executors.newCachedThreadPool());
+
+            server.start();
+
+            address = server.getAddress().toString();
+            address = "http://" + address.substring(1, address.length());
+            network.add(new Node(0, address, false));
+
+        } catch (BindException ex) {
+            System.err.println("Port " + port + " is already in use" );
+            System.exit(0);
         } catch (IOException ex) {
-            System.out.print(ex);
+            System.err.println(ex);
+            System.exit(0);
         }
 
         while(alive) {
+
             System.out.print(">>> ");
             Scanner in = new Scanner(System.in);
-            String s = in.nextLine();
-            // ToDo: create exceptions
+            String line = in.nextLine();
+
+            String[] s = line.split("\\s");
             
-            if ( s.equals("join") ) {
-                //ToDo
-                requestJSONHttp("http://192.168.71.43:8081/join");
+            if ( s[0].equals("join") ) {
+
+                joinReq(s[1] + "/join");
                 
-            } else if ( s.equals("exit") || s.equals("signoff") ) {
+            } else if ( s[0].equals("exit") || s[0].equals("signoff") ) {
                 //ToDo
                 //leave the group, update the network
                 alive = false;
                 //leave();
-            } else if ( s.equals("list") ) {
-                System.out.println("ToDo: List");
-            } else if ( s.equals("start") ) {
+                server.stop(0);
+
+            } else if ( s[0].equals("list") ) {
+                listNodes();
+            } else if ( s[0].equals("start") ) {
                 System.out.println("ToDo: Start");
-            } else if ( s.equals("42") ) {
+            } else if ( s[0].equals("42") ) {
                 System.out.println("Die Antwort nach dem Leben, dem " +  
                                    "Universum und allem");
-            } else if ( !s.equals("") ) {
+            } else if ( !s[0].equals("") ) {
                 System.out.println("Unknown command");
             }
         }

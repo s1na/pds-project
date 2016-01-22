@@ -24,7 +24,7 @@ public class Node {
         return addr;
     }
 
-    public boolean getMaster() {
+    public boolean isMaster() {
         return Master;
     }
 
