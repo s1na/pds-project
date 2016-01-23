@@ -9,6 +9,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
 
 import com.sun.net.httpserver.*;
 
@@ -33,18 +34,21 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.IOException;
 import java.io.BufferedReader;
+import java.lang.reflect.Type;
 
 
 public class Main {
 
     public static ArrayList<Node> network = new ArrayList<Node>();
     public static int port = 8080;
-
-    public static String address= "http://192.168.71.43";
-
+    public static String address= ""; //"http://192.168.71.43";
     public static boolean alive = true;
     public static HttpServer server = null;
 
+    static String convertStreamToString(java.io.InputStream is) {
+            java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
+                return s.hasNext() ? s.next() : "";
+    }
 
     private static InetAddress getInetAddress() {
 
@@ -68,6 +72,7 @@ public class Main {
             }
             */
 
+            //NetworkInterface n = NetworkInterface.getByName("wlan0");
             NetworkInterface n = NetworkInterface.getByName("eth0");
             Enumeration ee = n.getInetAddresses();
 
@@ -76,6 +81,7 @@ public class Main {
             }
 
         } catch (Exception e) {
+            System.err.println(e);
             System.err.println("Port " + port + " is already in use" );
             System.exit(0);
         }
@@ -149,8 +155,8 @@ public class Main {
 
                 }
 
-                System.out.println(net.getID());
-                System.out.println(net.getAddress());
+                //System.out.println(net.getID());
+                //System.out.println(net.getAddress());
             }
 
             exchange.sendResponseHeaders(200, 0);
@@ -194,18 +200,34 @@ public class Main {
 
             conn.setDoOutput(true);
             conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setRequestProperty("Content-Type", 
+                    "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
             
-            OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream());
+            OutputStreamWriter writer = new OutputStreamWriter(
+                    conn.getOutputStream()
+                    );
             writer.write(json);
             writer.close();
 
             if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+
                 System.out.println("OK");
+                InputStream is = conn.getInputStream();
+                //System.out.println(convertStreamToString(is));
+                Gson gson = new Gson();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+
+                Type listType = new TypeToken<ArrayList<Node>>() { }.getType();
+                ArrayList<Node> net = gson.fromJson(reader, listType);
+
+                //update the network with the information received
+                network = net;
+
             } else {
-                System.out.println("Not OK");
+                System.out.println("No response code");
             }
+
 
         } catch (IOException ex) {
             System.err.println(ex);

@@ -3,21 +3,21 @@
 
 public class Node {
 
-    private int ID;
+    private int id;
     private String addr;
     private boolean Master = false;
 
     public Node() {
     }
 
-    public Node(int ID, String addr, boolean Master) {
-        this.ID = ID;
+    public Node(int id, String addr, boolean Master) {
+        this.id = id;
         this.addr = addr;
         this.Master = Master;
     }
 
     public int getID() {
-        return ID;
+        return id;
     }
 
     public String getAddress() {
@@ -28,8 +28,8 @@ public class Node {
         return Master;
     }
 
-    public void setID(int ID) {
-        this.ID = ID;
+    public void setID(int id) {
+        this.id = id;
     }
 
     public void setAddress(String addr) {
