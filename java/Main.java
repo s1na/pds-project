@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.io.Reader;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.IOException;
@@ -141,10 +142,19 @@ public class Main {
             Reader reader = new InputStreamReader(requestBody, "UTF-8");
             Node node = new Gson().fromJson(reader, Node.class);
 
+            System.out.println("Request from " + node.getAddress() );
+
+            int _id = network.get(network.size() - 1).getID();
+            node.setID(_id + 1);
+
             /* add node to the network */
+            /* avoid repetition ??? */
             network.add(node);
 
-            /* Send notifications of update to the rest of the nodes */
+            /* Send notifications of update to the rest of the nodes, except
+             * the sender and the receiver.
+             * */
+
             for (Node net: network) {
 
                 if (!net.getAddress().equals(node.getAddress()) && 
@@ -154,12 +164,17 @@ public class Main {
                     networkUpdateReq(net.getAddress());
 
                 }
-
                 //System.out.println(net.getID());
                 //System.out.println(net.getAddress());
             }
 
-            exchange.sendResponseHeaders(200, 0);
+            String response = new Gson().toJson(network);
+            exchange.sendResponseHeaders(200, response.length());
+
+            OutputStream os = exchange.getResponseBody();
+            os.write(response.getBytes());
+            os.flush();
+
             exchange.close();
 
         }
