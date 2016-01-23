@@ -181,27 +181,30 @@ public class Main {
     }
 
     /* NetworkUpdateCtrl */
+    /* Receive a network structur and update the current network */
     private static class NetworkUpdateCtrl implements HttpHandler {
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
 
-            InputStream requestBody = exchange.getRequestBody();
-            System.out.println("->  " + getString(requestBody)); 
-            Reader reader = new InputStreamReader(requestBody, "UTF-8");
+            InputStream is = exchange.getRequestBody();
+            //System.out.println("->  " + getString(requestBody)); 
+            Gson gson = new Gson();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+            Type listType = new TypeToken<ArrayList<Node>>() { }.getType();
+            ArrayList<Node> net = gson.fromJson(reader, listType);
 
-            Node node = new Gson().fromJson(reader, Node.class);
-
-            System.out.println( );
-
-            /* add nodes to the network */
-            // network.add(node);
+            //update the network with the information received
+            network = net;
 
             exchange.sendResponseHeaders(200, 0);
             exchange.close();
 
         }
     }
+
+
+    /* Request operations */
 
     public static void joinReq(String address) {
 
@@ -250,11 +253,11 @@ public class Main {
 
     }
 
+    /* Send the network structure to other node */
     /* Different logic implementation in Go */
     public static void networkUpdateReq(String address) {
 
-        /* get first node */
-        String json = "{\"addr\": \"" + network.get(0).getAddress() + "\"}";
+        String json = new Gson().toJson(network);
 
         try {
 
