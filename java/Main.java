@@ -42,7 +42,7 @@ public class Main {
 
     public static ArrayList<Node> network = new ArrayList<Node>();
     public static int port = 8080;
-    public static String address= ""; //"http://192.168.71.43";
+    public static String localAddress= ""; //"http://192.168.71.43";
     public static boolean alive = true;
     public static HttpServer server = null;
 
@@ -205,11 +205,9 @@ public class Main {
 
 
     /* Request operations */
-
     public static void joinReq(String address) {
 
-        /* get first node */
-        String json = "{\"addr\": \"" + network.get(0).getAddress() + "\"}";
+        String json = "{\"addr\": \"" + localAddress + "\"}";
 
         try {
 
@@ -258,6 +256,7 @@ public class Main {
     public static void networkUpdateReq(String address) {
 
         String json = new Gson().toJson(network);
+        System.out.println(json);
 
         try {
 
@@ -317,9 +316,9 @@ public class Main {
 
             server.start();
 
-            address = server.getAddress().toString();
-            address = "http://" + address.substring(1, address.length());
-            network.add(new Node(0, address, false));
+            localAddress = server.getAddress().toString();
+            localAddress = "http://" + localAddress.substring(1, localAddress.length());
+            network.add(new Node(0, localAddress, false));
 
         } catch (BindException ex) {
             System.err.println("Port " + port + " is already in use" );
@@ -342,16 +341,31 @@ public class Main {
                 joinReq(s[1] + "/join");
                 
             } else if ( s[0].equals("exit") || s[0].equals("signoff") ) {
-                //ToDo
-                //leave the group, update the network
-                alive = false;
-                //leave();
-                server.stop(0);
+
+                for (Node n: network) {
+                    if ( n.getAddress().equals(localAddress) ) {
+                        network.remove( network.indexOf(n) );
+                        break;
+                    }
+                }
+
+                for (Node n: network) {
+                    //System.out.println("- " + n.getAddress());
+                    networkUpdateReq(n.getAddress());
+                }
+
+                network.clear();
+                network.add(new Node(0, localAddress, false));
+
+                if ( s[0].equals("exit") ){
+                    alive = false;
+                    server.stop(0);
+                }
 
             } else if ( s[0].equals("list") ) {
                 listNodes();
             } else if ( s[0].equals("start") ) {
-                System.out.println("ToDo: Start");
+                // start
             } else if ( s[0].equals("42") ) {
                 System.out.println("Die Antwort nach dem Leben, dem " +  
                                    "Universum und allem");
