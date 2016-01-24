@@ -61,10 +61,32 @@ func startElection() {
 					masterCurNode = ""
 					go centralizedResourceManager()
 				}
+				if shData != "" {
+					masterSharedData = shData
+				}
 			} else {
 				log.Debug("Sending coordinator for ", n.Addr)
 				coordinatorReq(n.Addr)
 			}
+		}
+		// Broadcast start message
+		broadcastStart()
+		if syncAlgorithm != "centralized" || masterNode != selfNode {
+			distributedRW()
+		}
+
+	}
+}
+
+func broadcastStart() {
+	for _, n := range network {
+		if n.Addr != selfNode.Addr {
+			go func(addr string) {
+				_, err := http.Get(fmt.Sprint(addr, "/start"))
+				if err != nil {
+					fmt.Println(err)
+				}
+			}(n.Addr)
 		}
 	}
 }
@@ -79,7 +101,6 @@ func randStringBytes(n int) string {
 
 func distributedRW() {
 	var addedWords []string
-	var shData string
 
 	if syncAlgorithm == "ra" {
 		lc = &LamportClock{Counter: 0, ID: selfNode.ID}
@@ -87,14 +108,18 @@ func distributedRW() {
 		accessClock = &LamportClock{ID: 0, Counter: 0}
 	}
 
-	start := time.Now()
-	for time.Since(start).Seconds() < 20 {
+	startedDRW = true
+	startTime = time.Now()
+	for elapsedTime+time.Since(startTime).Seconds() < 20 {
 		duration := rand.Intn(2000)
 		log.Info("Sleeping for ", duration, " milliseconds")
 		time.Sleep(time.Duration(duration) * time.Millisecond)
 
 		if syncAlgorithm == "centralized" {
 			resBody := syncCentralizedReq(masterNode.Addr)
+			if resBody == nil {
+				return
+			}
 			var data map[string]interface{}
 			if err := json.Unmarshal(resBody, &data); err != nil {
 				panic(err)
@@ -104,18 +129,28 @@ func distributedRW() {
 			}
 
 			resBody = readDataReq(masterNode.Addr)
+			if resBody == nil {
+				return
+			}
+
 			//var data map[string]string
 			if err := json.Unmarshal(resBody, &data); err != nil {
 				panic(err)
 			}
 			shData = data["data"].(string)
-			log.Info("Current data, ", shData)
 			randomWord := randStringBytes(4)
 			addedWords = append(addedWords, randomWord)
 			shData = shData + randomWord
-			writeDataReq(masterNode.Addr, shData)
-
+			log.Info("Current data, ", shData)
+			resBody = writeDataReq(masterNode.Addr, shData)
+			if resBody == nil {
+				return
+			}
 			resBody = syncCentralizedRelease(masterNode.Addr)
+			if resBody == nil {
+				return
+			}
+
 			//var data map[string]interface{}
 			if err := json.Unmarshal(resBody, &data); err != nil {
 				panic(err)
@@ -166,8 +201,6 @@ func distributedRW() {
 			accessCond.Broadcast()
 		}
 	}
-	accessStatus = 0
-	accessCond.Broadcast()
 
 	var data map[string]interface{}
 	resBody := finishReq(masterNode.Addr)
@@ -206,5 +239,18 @@ func centralizedResourceManager() {
 				}
 			}
 		}
+	}
+}
+
+func removeNode(node *Node) {
+	for i, n := range network {
+		if n.Addr == node.Addr {
+			network[i] = network[len(network)-1]
+			network = network[:len(network)-1]
+			break
+		}
+	}
+	for _, n := range network {
+		networkUpdateReq(n.Addr, network)
 	}
 }

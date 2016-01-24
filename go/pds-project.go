@@ -25,6 +25,10 @@ var serverPort string
 var syncAlgorithm string
 var network []Node
 var selfNode *Node
+var startTime time.Time
+var elapsedTime float64
+var shData string
+var startedDRW bool
 var lc *LamportClock
 var accessStatus int
 var accessClock *LamportClock
@@ -83,7 +87,6 @@ func client() {
 						break
 					}
 				}
-				fmt.Println(network)
 				for _, n := range network {
 					networkUpdateReq(n.Addr, network)
 				}
@@ -112,19 +115,11 @@ func client() {
 				startElection()
 
 				// Send start msg
-				for _, n := range network {
-					if n.Addr != selfNode.Addr {
-						go func(addr string) {
-							_, err := http.Get(fmt.Sprint(addr, "/start"))
-							if err != nil {
-								fmt.Println(err)
-							}
-						}(n.Addr)
-					}
-				}
-				if syncAlgorithm != "centralized" || masterNode != selfNode {
-					distributedRW()
-				}
+				//broadcastStart()
+
+				//if syncAlgorithm != "centralized" || masterNode != selfNode {
+				//distributedRW()
+				//}
 			} else if cmd != "" {
 				fmt.Println("Unknown command")
 			}
@@ -155,9 +150,11 @@ func server(ch chan string) {
 }
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
-	masterSharedData = "PDS"
 	log.Level = logrus.DebugLevel
+	rand.Seed(time.Now().UnixNano())
+	masterSharedData = ""
+	elapsedTime = 0
+	startedDRW = false
 	log.Formatter.(*logrus.TextFormatter).FullTimestamp = true
 	client()
 }
