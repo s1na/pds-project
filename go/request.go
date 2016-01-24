@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"time"
+
+	//"github.com/Sirupsen/logrus"
 )
 
 func joinReq(dest string, selfAddr string) []byte {
@@ -41,7 +44,14 @@ func coordinatorReq(dest string) {
 func syncCentralizedReq(dest string) []byte {
 	resp, err := http.Get(fmt.Sprint(dest, "/sync/centralized/req"))
 	if err != nil {
-		panic(err)
+		log.Error(err)
+		removeNode(masterNode)
+		startElection()
+		elapsedTime = time.Since(startTime).Seconds()
+		if syncAlgorithm == "centralized" && selfNode.Addr != masterNode.Addr {
+			go distributedRW()
+		}
+		return nil
 	}
 	resBody, _ := ioutil.ReadAll(resp.Body)
 	return resBody
@@ -50,7 +60,14 @@ func syncCentralizedReq(dest string) []byte {
 func syncCentralizedRelease(dest string) []byte {
 	resp, err := http.Get(fmt.Sprint(dest, "/sync/centralized/release"))
 	if err != nil {
-		panic(err)
+		log.Error(err)
+		removeNode(masterNode)
+		startElection()
+		elapsedTime = time.Since(startTime).Seconds()
+		if syncAlgorithm == "centralized" && selfNode.Addr != masterNode.Addr {
+			go distributedRW()
+		}
+		return nil
 	}
 	resBody, _ := ioutil.ReadAll(resp.Body)
 	return resBody
@@ -85,7 +102,14 @@ func syncRAReq(dest string) []byte {
 func readDataReq(dest string) []byte {
 	resp, err := http.Get(fmt.Sprint(dest, "/read"))
 	if err != nil {
-		panic(err)
+		log.Error(err)
+		removeNode(masterNode)
+		startElection()
+		elapsedTime = time.Since(startTime).Seconds()
+		if syncAlgorithm == "centralized" && selfNode.Addr != masterNode.Addr {
+			go distributedRW()
+		}
+		return nil
 	}
 	resBody, _ := ioutil.ReadAll(resp.Body)
 	return resBody
@@ -96,7 +120,14 @@ func writeDataReq(dest string, shData string) []byte {
 	msg, _ := json.Marshal(data)
 	resp, err := http.Post(fmt.Sprint(dest, "/write"), "application/json", bytes.NewBuffer(msg))
 	if err != nil {
-		panic(err)
+		log.Error(err)
+		removeNode(masterNode)
+		startElection()
+		elapsedTime = time.Since(startTime).Seconds()
+		if syncAlgorithm == "centralized" && selfNode.Addr != masterNode.Addr {
+			go distributedRW()
+		}
+		return nil
 	}
 	resBody, _ := ioutil.ReadAll(resp.Body)
 	return resBody

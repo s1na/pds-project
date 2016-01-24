@@ -92,7 +92,9 @@ func CoordinatorCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params
 func StartCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	log.Info("Start Distributed Read/Write")
 
-	go distributedRW()
+	if (syncAlgorithm != "centralized" || masterNode != selfNode) && !startedDRW {
+		go distributedRW()
+	}
 }
 
 func FinishCtrl(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
