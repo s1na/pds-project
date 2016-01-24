@@ -37,7 +37,6 @@ import java.io.IOException;
 import java.io.BufferedReader;
 import java.lang.reflect.Type;
 
-
 public class Main {
 
     public static ArrayList<Node> network = new ArrayList<Node>();
@@ -181,7 +180,7 @@ public class Main {
     }
 
     /* NetworkUpdateCtrl */
-    /* Receive a network structur and update the current network */
+    /* Receive a network structure and update the current network */
     private static class NetworkUpdateCtrl implements HttpHandler {
 
         @Override
@@ -203,8 +202,27 @@ public class Main {
         }
     }
 
+    /* WriteCtrl */
+    private static class WriteCtrl implements HttpHandler {
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+
+        }
+    }
+
+    /* ReadCtrl */
+    private static class ReadCtrl implements HttpHandler {
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+
+        }
+    }
+
 
     /* Request operations */
+    /* joinReq */
     public static void joinReq(String address) {
 
         String json = "{\"addr\": \"" + localAddress + "\"}";
@@ -248,7 +266,53 @@ public class Main {
         } catch (IOException ex) {
             System.err.println(ex);
         }
+    }
 
+    /* readDataReq */
+    /* receive as a parameter the master node */
+    public static void readDataReq(String address) {
+
+        String json = "{\"addr\": \"" + localAddress + "\"}";
+
+        try {
+
+            URL url = new URL(address);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+            conn.setDoOutput(true);
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Content-Type", 
+                    "application/json; charset=UTF-8");
+            conn.setRequestProperty("Accept", "application/json");
+            
+            OutputStreamWriter writer = new OutputStreamWriter(
+                    conn.getOutputStream()
+                    );
+            writer.write(json);
+            writer.close();
+
+            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+
+                System.out.println("OK");
+                InputStream is = conn.getInputStream();
+                //System.out.println(convertStreamToString(is));
+                Gson gson = new Gson();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+
+                Type listType = new TypeToken<ArrayList<Node>>() { }.getType();
+                ArrayList<Node> net = gson.fromJson(reader, listType);
+
+                //update the network with the information received
+                network = net;
+
+            } else {
+                System.out.println("No response code");
+            }
+
+
+        } catch (IOException ex) {
+            System.err.println(ex);
+        }
     }
 
     /* Send the network structure to other node */
@@ -307,8 +371,12 @@ public class Main {
             InetAddress ia = getInetAddress();
             server = HttpServer.create(new InetSocketAddress(ia, port) ,0);
 
+            /* GET */
+            //server.createContext("/read", new ReadCtrl() );
+            /* POST */
             server.createContext("/join", new JoinCtrl() );
             server.createContext("/network/update", new NetworkUpdateCtrl() );
+            server.createContext("/write", new WriteCtrl() );
 
             /* Listener */
             server.setExecutor(Executors.newFixedThreadPool(20));
@@ -349,8 +417,10 @@ public class Main {
                     }
                 }
 
+                listNodes();
+
                 for (Node n: network) {
-                    //System.out.println("- " + n.getAddress());
+                    System.out.println("-> " + n.getAddress());
                     networkUpdateReq(n.getAddress());
                 }
 
