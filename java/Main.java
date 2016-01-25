@@ -41,7 +41,6 @@ import java.io.OutputStreamWriter;
 import java.io.IOException;
 import java.io.BufferedReader;
 import java.lang.reflect.Type;
-import java.lang.*;
 
 /* */
 class JSONResponse {
@@ -70,6 +69,7 @@ public class Main {
     public static String masterResCtrl = "";
     public static String masterResourceData = "";
     public static String masterCurNode = "";
+    public static String masterSharedData = "";
 
     /* Default values for the parameters */
     public static String syncAlgorithm = "centralized";
@@ -228,6 +228,7 @@ public class Main {
                 }
             }
 
+            exchange.sendResponseHeaders(200, 0);
             exchange.close();
         }
     }
@@ -288,25 +289,59 @@ public class Main {
     /* WriteCtrl */
     private static class WriteCtrl implements HttpHandler {
 
+        JSONResponse data = new JSONResponse(true, "", "");
+
         @Override
         public void handle(HttpExchange exchange) throws IOException {
 
+            InputStream is = exchange.getRequestBody();
+            //masterSharedData = getString(requestBody).regex();
+            Gson gson = new Gson();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+            Type listType = new TypeToken<HashMap>() { }.getType();
+            HashMap r = gson.fromJson(reader, listType);
+
+            masterSharedData = r.get("data").toString();
+            System.out.println(masterSharedData);
+
+            String response = new Gson().toJson(data);
+            exchange.sendResponseHeaders(200, response.length());
+
+            OutputStream os = exchange.getResponseBody();
+            os.write(response.getBytes());
+            os.flush();
+
+            exchange.close();
+
         }
+
     }
 
     /*syncCentralizedreq controller*/
     private static class CentralizedReqCtrl implements HttpHandler {
 
+        JSONResponse data = new JSONResponse(true, "", "");
+
         @Override
         public void handle(HttpExchange exchange) throws IOException{
+
             if(masterResCtrl == ""){
                 masterCurNode = masterNode.getAddress();
                 masterResCtrl = "lock";
-                exchange.sendResponseHeaders(200, 0);
+
             } else{
+
                 masterCurNode = "";
                 masterResCtrl = "";
             }
+
+            String response = new Gson().toJson(data);
+            exchange.sendResponseHeaders(200, response.length());
+
+            OutputStream os = exchange.getResponseBody();
+            os.write(response.getBytes());
+            os.flush();
+
             exchange.close();
         }
     }
@@ -314,12 +349,21 @@ public class Main {
     /*syncCentralizedRelease controller*/
     private static class CentralizedReleaseCtrl implements HttpHandler {
 
+        JSONResponse data = new JSONResponse(true, "", "");
+
         @Override
         public void handle(HttpExchange exchange) throws IOException {
         	masterCurNode = "";
     		masterResCtrl = "";
-    		exchange.sendResponseHeaders(200, 0);
-    		exchange.close();
+
+            String response = new Gson().toJson(data);
+            exchange.sendResponseHeaders(200, response.length());
+
+            OutputStream os = exchange.getResponseBody();
+            os.write(response.getBytes());
+            os.flush();
+
+            exchange.close();
         }
     }
 
@@ -331,15 +375,16 @@ public class Main {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
 
-            if (syncAlgorithm == "centralized") {
-                if ( exchange.getRemoteAddress().equals(masterCurNode) ) {
-                    data.data = masterResourceData;
-                } else {
-                    data.ok = false;
-                    data.err = "Permission Denied";
-                }
-            } else if (syncAlgorithm == "ra"){
-                //data.data = masterSharedData;
+            if (syncAlgorithm.equals("centralized")) {
+                //if ( exchange.getRemoteAddress().equals(masterCurNode) ) {
+                    //data.data = masterResourceData;
+                    data.data = masterSharedData;
+                //} else {
+                //    data.ok = false;
+                //    data.err = "Permission Denied";
+                //}
+            } else if (syncAlgorithm.equals("ra")) {
+                data.data = masterSharedData;
             }
 
             String response = new Gson().toJson(data);
@@ -357,6 +402,8 @@ public class Main {
     /* FinishCtrl */
     private static class FinishCtrl implements HttpHandler {
 
+        JSONResponse data = new JSONResponse(true, "", "");
+
         @Override
         public void handle(HttpExchange exchange) throws IOException {
 
@@ -373,6 +420,18 @@ public class Main {
                 masterFinishedCond.Wait()
             }
             */
+
+            data.data = masterSharedData;
+
+            String response = new Gson().toJson(data);
+            exchange.sendResponseHeaders(200, response.length());
+
+            OutputStream os = exchange.getResponseBody();
+            os.write(response.getBytes());
+            os.flush();
+
+            exchange.close();
+
         }
     }
 
@@ -462,6 +521,7 @@ public class Main {
     public static String writeDataReq(String address, String shData) {
 
         String json = "{\"data\": \"" + shData + "\"}";
+        String answer = "";
 
         try {
 
@@ -585,6 +645,7 @@ public class Main {
     }
 
     public static boolean syncCentralizedReq(){
+
         boolean response = false;
     	try{
     		URL url = new URL(masterNode.getAddress() + "/sync/centralized/req");
@@ -605,6 +666,7 @@ public class Main {
             System.err.println(ex);
         }
         return response;
+
     }
 
     public static boolean syncCentralizedRelease(){
@@ -733,6 +795,7 @@ public class Main {
 
     /* distributedRW */
     public static void distributedRW() {
+
     	if(syncAlgorithm == "centralized"){
 
     		boolean resBody = syncCentralizedReq();
@@ -751,6 +814,7 @@ public class Main {
             	System.out.println("Ok");
             }
     	}
+
     }
 
     /* distributedRW */
