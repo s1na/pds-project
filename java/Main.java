@@ -30,6 +30,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Map;
+import java.util.HashMap;
 import java.text.SimpleDateFormat;
 import java.io.Reader;
 import java.io.InputStream;
@@ -40,17 +42,36 @@ import java.io.IOException;
 import java.io.BufferedReader;
 import java.lang.reflect.Type;
 
+/* */
+class JSONResponse {
+
+    public boolean ok;
+    public String err;
+    public String data;
+
+    public JSONResponse(boolean ok, String err, String data) {
+        this.ok = ok;
+        this.err = err;
+        this.data = data;
+    }
+}
+
 public class Main {
 
     public static Node masterNode = null;
     public static Node selfNode = null;
     public static ArrayList<Node> network = new ArrayList<Node>();
-    public static int port = 8080;
     public static String localAddress= "";
     public static boolean alive = true;
     public static HttpServer server = null;
-    public static String syncAlgorithm = "centralized";
     public static boolean startedDRW = false;
+    public static String masterResourceData = "";
+    public static String masterCurNode = "";
+
+    /* Default values for the parameters */
+    public static String syncAlgorithm = "centralized";
+    public static String networkInterface = "eth0";
+    public static int port = 8080;
 
     static String convertStreamToString(java.io.InputStream is) {
             java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
@@ -80,7 +101,7 @@ public class Main {
             */
 
             //NetworkInterface n = NetworkInterface.getByName("wlan0");
-            NetworkInterface n = NetworkInterface.getByName("eth0");
+            NetworkInterface n = NetworkInterface.getByName(networkInterface);
             Enumeration ee = n.getInetAddresses();
 
             while (ee.hasMoreElements()) {
@@ -279,8 +300,31 @@ public class Main {
     /* ReadCtrl */
     private static class ReadCtrl implements HttpHandler {
 
+        JSONResponse data = new JSONResponse(true, "", "");
+
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+
+            if (syncAlgorithm == "centralized") {
+                if ( exchange.getRemoteAddress().equals(masterCurNode) ) {
+                    data.data = masterResourceData;
+                } else {
+                    data.ok = false;
+                    data.err = "Permission Denied";
+                }
+            } else if (syncAlgorithm == "ra"){
+                //data.data = masterSharedData;
+            }
+
+            String response = new Gson().toJson(data);
+            exchange.sendResponseHeaders(200, response.length());
+
+            OutputStream os = exchange.getResponseBody();
+            os.write(response.getBytes());
+            os.flush();
+
+            exchange.close();
+
         }
     }
 
@@ -355,9 +399,9 @@ public class Main {
 
     /* readDataReq */
     /* receive as a parameter the master node */
-    public static void readDataReq(String address) {
+    public static String readDataReq(String address) {
 
-        String json = "";
+        String answer = "";
 
         try {
 
@@ -370,36 +414,23 @@ public class Main {
                     "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
 
-            OutputStreamWriter writer = new OutputStreamWriter(
-                    conn.getOutputStream());
-            writer.write(json);
-            writer.close();
-
             /* remove node */
-
             if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
 
                 System.out.println("OK");
                 InputStream is = conn.getInputStream();
-                //System.out.println(convertStreamToString(is));
-                Gson gson = new Gson();
-                BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(is));
-
-                Type listType = new TypeToken<ArrayList<Node>>() { }.getType();
-                ArrayList<Node> net = gson.fromJson(reader, listType);
-
-                //update the network with the information received
-                network = net;
+                answer = convertStreamToString(is);
 
             } else {
                 System.out.println("No response code");
+                answer = "";
             }
-
 
         } catch (IOException ex) {
             System.err.println(ex);
         }
+
+        return answer;
     }
 
     /* Send the network structure to other node */
@@ -528,7 +559,6 @@ public class Main {
             }
         }
 
-        System.out.println(won);
         if (won == true) {
 
             for (Node n: network) {
@@ -550,6 +580,7 @@ public class Main {
                         masterSharedData = shData
                     }
                     */
+
                 } else {
                     System.out.println("Sending coordinator for "
                             + n.getAddress());
@@ -612,6 +643,7 @@ public class Main {
         Options options = new Options();
         options.addOption("p", "port", true, "Port");
         options.addOption("s", "sync", true, "Synchronization");
+        options.addOption("i", "interface", true, "Interface");
         CommandLineParser parser = new DefaultParser();
 
         try {
@@ -629,7 +661,9 @@ public class Main {
                     System.exit(0);
                 }
             }
-
+            if ( line.hasOption("interface") ) {
+                networkInterface = line.getOptionValue("interface");
+            }
         } catch (ParseException exp) {
             System.err.println("Parsing failed. Reason " + exp.getMessage());
         }
@@ -659,7 +693,8 @@ public class Main {
             server.start();
 
             localAddress = server.getAddress().toString();
-            localAddress = "http://" + localAddress.substring(1, localAddress.length());
+            localAddress = "http://" + localAddress.substring(1, 
+                    localAddress.length());
             network.add(new Node(0, localAddress, false));
             selfNode = new Node(0, localAddress, false);
 
