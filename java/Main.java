@@ -611,6 +611,7 @@ public class Main {
 
         Options options = new Options();
         options.addOption("p", "port", true, "Port");
+        options.addOption("s", "sync", true, "Synchronization");
         CommandLineParser parser = new DefaultParser();
 
         try {
@@ -619,9 +620,18 @@ public class Main {
             if ( line.hasOption("port") ) {
                 port = Integer.parseInt( line.getOptionValue("port") );
             }
+            if ( line.hasOption("sync") ) {
+                syncAlgorithm = line.getOptionValue("sync");
+                if ( !syncAlgorithm.equals("centralized") 
+                        && !syncAlgorithm.equals("ra") ) {
+                    System.out.println("Sync algorithm not supported, use" 
+                            + " centralized or ra (Ricard & Agrawala).");
+                    System.exit(0);
+                }
+            }
 
         } catch (ParseException exp) {
-            System.err.println("Parsing failed. Reason " + exp.getMessage() );
+            System.err.println("Parsing failed. Reason " + exp.getMessage());
         }
 
         /* Server Side */
@@ -667,7 +677,7 @@ public class Main {
             Scanner in = new Scanner(System.in);
             String line = in.nextLine();
 
-            String[] s = line.split("\\s");
+            String[] s = line.split("\\s+");
 
             if ( s[0].equals("join") ) {
 
