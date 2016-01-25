@@ -28,6 +28,9 @@ import java.util.Enumeration;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
+import java.util.Calendar;
+import java.util.Date;
+import java.text.SimpleDateFormat;
 import java.io.Reader;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -43,9 +46,11 @@ public class Main {
     public static Node selfNode = null;
     public static ArrayList<Node> network = new ArrayList<Node>();
     public static int port = 8080;
-    public static String localAddress= ""; //"http://192.168.71.43";
+    public static String localAddress= "";
     public static boolean alive = true;
     public static HttpServer server = null;
+    public static String syncAlgorithm = "centralized";
+    public static boolean startedDRW = false;
 
     static String convertStreamToString(java.io.InputStream is) {
             java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
@@ -193,7 +198,7 @@ public class Main {
 
             for (Node n: network) {
                 if (n.getAddress().equals(data.getAddress())) {
-                    System.out.println("Setting coordinator " + data);
+                    System.out.println("Setting coordinator " + data.getID());
                     network.get(network.indexOf(n)).setMaster(true) ;
                     masterNode = network.get(network.indexOf(n));
                 }
@@ -242,11 +247,17 @@ public class Main {
         public void handle(HttpExchange exchange) throws IOException {
 
             System.out.println("Start distributed read and write");
+            System.out.println(network.get(0));
+            System.out.println(network.get(1));
+            System.out.println(network.get(2));
+
+            System.out.println(" -->" + masterNode.getAddress());
+            System.out.println(" -->" + selfNode.getAddress());
 
             /*
-            if (syncAlgorithm != "centralized" || masterNode != selfNode) 
-                && !startedDRW {
-                distributedRW()
+            if (syncAlgorithm != "centralized" || !masterNode.equals(selfNode)
+                && !startedDRW) {
+                distributedRW();
             }
             */
 
@@ -270,10 +281,30 @@ public class Main {
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-
         }
     }
 
+    /* FinishCtrl */
+    private static class FinishCtrl implements HttpHandler {
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+
+            //masterFinishCond.L.Lock();
+            //masterFinished++;
+            int boundary = network.size() - 1;
+            if (syncAlgorithm == "ra") {
+                boundary = network.size() - 1;
+            }
+            /*
+            if (masterFinished == boundary) {
+                masterFinishedCond.Broadcast()
+            } else {
+                masterFinishedCond.Wait()
+            }
+            */
+        }
+    }
 
     /* Request operations */
     /* joinReq */
@@ -383,7 +414,7 @@ public class Main {
 
             conn.setDoOutput(true);
             conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", 
+            conn.setRequestProperty("Content-Type",
                     "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
 
@@ -403,7 +434,7 @@ public class Main {
         }
 
     }
-    
+
     /* coordinatorReq */
     public static void coordinatorReq(String address) {
 
@@ -416,7 +447,7 @@ public class Main {
 
             conn.setDoOutput(true);
             conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", 
+            conn.setRequestProperty("Content-Type",
                     "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
 
@@ -424,6 +455,31 @@ public class Main {
                     conn.getOutputStream());
             writer.write(json);
             writer.close();
+
+            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                System.out.println("OK");
+            } else {
+                System.out.println("Not OK");
+            }
+
+        } catch (IOException ex) {
+            System.err.println(ex);
+        }
+    }
+
+    /* finishReq */
+    public static void finishReq(String address) {
+
+        try {
+
+            URL url = new URL(address + "/finish");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+            conn.setDoOutput(true);
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Content-Type",
+                    "application/json; charset=UTF-8");
+            conn.setRequestProperty("Accept", "application/json");
 
             if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
                 System.out.println("OK");
@@ -440,7 +496,7 @@ public class Main {
     /* startElection */
     public static void startElection() {
 
-    	boolean won = true;
+        boolean won = true;
         for (Node n: network) {
 
             if ( n.getID() > selfNode.getID() ) {
@@ -449,12 +505,12 @@ public class Main {
                 try {
 
                     URL url = new URL(n.getAddress() + "/election");
-                    HttpURLConnection conn = 
+                    HttpURLConnection conn =
                         (HttpURLConnection) url.openConnection();
 
                     conn.setDoOutput(true);
                     conn.setRequestMethod("GET");
-                    conn.setRequestProperty("Content-Type", 
+                    conn.setRequestProperty("Content-Type",
                             "application/json; charset=UTF-8");
                     conn.setRequestProperty("Accept", "application/json");
 
@@ -472,7 +528,9 @@ public class Main {
             }
         }
 
-        if (won) {
+        System.out.println(won);
+        if (won == true) {
+
             for (Node n: network) {
                 if ( n.getAddress().equals(localAddress) ) {
                     System.out.println("Setting self as master");
@@ -493,7 +551,7 @@ public class Main {
                     }
                     */
                 } else {
-                    System.out.println("Sending coordinator for " 
+                    System.out.println("Sending coordinator for "
                             + n.getAddress());
                     coordinatorReq(n.getAddress());
                 }
@@ -513,12 +571,12 @@ public class Main {
             //here Threads??? AAA
                 try {
                     URL url = new URL(n.getAddress() + "/start");
-                    HttpURLConnection conn = 
+                    HttpURLConnection conn =
                         (HttpURLConnection) url.openConnection();
 
                     conn.setDoOutput(true);
                     conn.setRequestMethod("GET");
-                    conn.setRequestProperty("Content-Type", 
+                    conn.setRequestProperty("Content-Type",
                             "application/json; charset=UTF-8");
                     conn.setRequestProperty("Accept", "application/json");
 
@@ -537,6 +595,16 @@ public class Main {
 
     /* distributedRW */
     public static void distributedRW() {
+
+        startedDRW = true;
+        ArrayList<String> addedWords = new ArrayList<String>();
+        Date startingTime = Calendar.getInstance().getTime();
+        System.out.println( startingTime );
+
+        if (syncAlgorithm.equals("centralized")) {
+            //syncCentralizedReq(masterNode.getAddress());
+        }
+
     }
 
     public static void main(String[] args) {
@@ -566,6 +634,7 @@ public class Main {
             server.createContext("/election", new ElectionCtrl() );
             server.createContext("/start", new StartCtrl() );
             server.createContext("/read", new ReadCtrl() );
+            server.createContext("/finish", new FinishCtrl() );
 
             /* POST */
             server.createContext("/join", new JoinCtrl() );
