@@ -21,7 +21,7 @@ func getLocalIP() string {
 	if localIP != "" {
 		return localIP
 	}
-	i, _ := net.InterfaceByName("eth0")
+	i, _ := net.InterfaceByName(netInterface)
 	addrs, _ := i.Addrs()
 	ip := addrs[0].(*net.IPNet).IP.String()
 	localIP = ip

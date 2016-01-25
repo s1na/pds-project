@@ -22,6 +22,7 @@ type Node struct {
 
 var log = logrus.New()
 var serverPort string
+var netInterface string
 var syncAlgorithm string
 var network []Node
 var selfNode *Node
@@ -56,6 +57,11 @@ func client() {
 			Value: "centralized",
 			Usage: "Synchronization algorithm used, either centralized or ra (Ricart & Agrawala).",
 		},
+		cli.StringFlag{
+			Name:  "interface, i",
+			Value: "eth0",
+			Usage: "Network interface to use",
+		},
 	}
 
 	app.Action = func(c *cli.Context) {
@@ -64,6 +70,7 @@ func client() {
 			log.Fatal("Sync algorithm not supported, use centralized or ra (Ricard & Agrawala).")
 			return
 		}
+		netInterface = c.String("interface")
 		serverPort = c.String("port")
 		network = make([]Node, 1)
 		network[0] = Node{ID: 0, Addr: getLocalAddr(), Master: false}
