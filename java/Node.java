@@ -5,15 +5,15 @@ public class Node {
 
     private int id;
     private String addr;
-    private boolean Master = false;
+    private boolean master = false;
 
     public Node() {
     }
 
-    public Node(int id, String addr, boolean Master) {
+    public Node(int id, String addr, boolean master) {
         this.id = id;
         this.addr = addr;
-        this.Master = Master;
+        this.master = master;
     }
 
     public int getID() {
@@ -25,7 +25,7 @@ public class Node {
     }
 
     public boolean isMaster() {
-        return Master;
+        return master;
     }
 
     public void setID(int id) {
@@ -36,7 +36,7 @@ public class Node {
         this.addr = addr;
     }
 
-    public void setMaster(boolean Master) {
-        this.Master = Master;
+    public void setMaster(boolean master) {
+        this.master = master;
     }
 }

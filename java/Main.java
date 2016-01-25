@@ -39,6 +39,8 @@ import java.lang.reflect.Type;
 
 public class Main {
 
+    public static Node masterNode = null;
+    public static Node selfNode = null;
     public static ArrayList<Node> network = new ArrayList<Node>();
     public static int port = 8080;
     public static String localAddress= ""; //"http://192.168.71.43";
@@ -120,7 +122,7 @@ public class Main {
     /* List known nodes */
     private static void listNodes() {
         for (Node net: network) {
-            
+
             System.out.println();
             System.out.println("ID -> "  + net.getID());
             System.out.println("  Address -> " + net.getAddress());
@@ -137,7 +139,7 @@ public class Main {
         public void handle(HttpExchange exchange) throws IOException {
 
             InputStream requestBody = exchange.getRequestBody();
-            //System.out.println("->  " + getString(requestBody)); 
+            //System.out.println("->  " + getString(requestBody));
             Reader reader = new InputStreamReader(requestBody, "UTF-8");
             Node node = new Gson().fromJson(reader, Node.class);
 
@@ -156,7 +158,7 @@ public class Main {
 
             for (Node net: network) {
 
-                if (!net.getAddress().equals(node.getAddress()) && 
+                if (!net.getAddress().equals(node.getAddress()) &&
                     !net.getAddress().equals(network.get(0).getAddress())) {
 
                     System.out.println("Sending update for " + net.getAddress());
@@ -175,7 +177,38 @@ public class Main {
             os.flush();
 
             exchange.close();
+        }
+    }
 
+    /* CoordinatorCtrl */
+    private static class CoordinatorCtrl implements HttpHandler {
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+
+            InputStream requestBody = exchange.getRequestBody();
+            //System.out.println("->  " + getString(requestBody));
+            Reader reader = new InputStreamReader(requestBody, "UTF-8");
+            Node data = new Gson().fromJson(reader, Node.class);
+
+            for (Node n: network) {
+                if (n.getAddress().equals(data.getAddress())) {
+                    System.out.println("Setting coordinator " + data);
+                    network.get(network.indexOf(n)).setMaster(true) ;
+                    masterNode = network.get(network.indexOf(n));
+                }
+            }
+
+            exchange.close();
+        }
+    }
+
+    /* ElectionCtrl */
+    private static class ElectionCtrl implements HttpHandler {
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            startElection();
         }
     }
 
@@ -187,7 +220,7 @@ public class Main {
         public void handle(HttpExchange exchange) throws IOException {
 
             InputStream is = exchange.getRequestBody();
-            //System.out.println("->  " + getString(requestBody)); 
+            //System.out.println("->  " + getString(requestBody));
             Gson gson = new Gson();
             BufferedReader reader = new BufferedReader(new InputStreamReader(is));
             Type listType = new TypeToken<ArrayList<Node>>() { }.getType();
@@ -195,6 +228,27 @@ public class Main {
 
             //update the network with the information received
             network = net;
+
+            exchange.sendResponseHeaders(200, 0);
+            exchange.close();
+
+        }
+    }
+
+    /* StartCtrl */
+    private static class StartCtrl implements HttpHandler {
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+
+            System.out.println("Start distributed read and write");
+
+            /*
+            if (syncAlgorithm != "centralized" || masterNode != selfNode) 
+                && !startedDRW {
+                distributedRW()
+            }
+            */
 
             exchange.sendResponseHeaders(200, 0);
             exchange.close();
@@ -234,10 +288,10 @@ public class Main {
 
             conn.setDoOutput(true);
             conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", 
+            conn.setRequestProperty("Content-Type",
                     "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
-            
+
             OutputStreamWriter writer = new OutputStreamWriter(
                     conn.getOutputStream()
                     );
@@ -272,24 +326,25 @@ public class Main {
     /* receive as a parameter the master node */
     public static void readDataReq(String address) {
 
-        String json = "{\"addr\": \"" + localAddress + "\"}";
+        String json = "";
 
         try {
 
-            URL url = new URL(address);
+            URL url = new URL(address + "/read");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
             conn.setDoOutput(true);
             conn.setRequestMethod("GET");
-            conn.setRequestProperty("Content-Type", 
+            conn.setRequestProperty("Content-Type",
                     "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
-            
+
             OutputStreamWriter writer = new OutputStreamWriter(
-                    conn.getOutputStream()
-                    );
+                    conn.getOutputStream());
             writer.write(json);
             writer.close();
+
+            /* remove node */
 
             if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
 
@@ -297,7 +352,8 @@ public class Main {
                 InputStream is = conn.getInputStream();
                 //System.out.println(convertStreamToString(is));
                 Gson gson = new Gson();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(is));
 
                 Type listType = new TypeToken<ArrayList<Node>>() { }.getType();
                 ArrayList<Node> net = gson.fromJson(reader, listType);
@@ -320,19 +376,52 @@ public class Main {
     public static void networkUpdateReq(String address) {
 
         String json = new Gson().toJson(network);
-        System.out.println(json);
 
         try {
-
-            URL url = new URL(address);
+            URL url = new URL(address + "/network/update");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
             conn.setDoOutput(true);
             conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setRequestProperty("Content-Type", 
+                    "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
-            
-            OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream());
+
+            OutputStreamWriter writer = new OutputStreamWriter(
+                    conn.getOutputStream());
+            writer.write(json);
+            writer.close();
+
+            if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                System.out.println("OK");
+            } else {
+                System.out.println("Not OK");
+            }
+
+        } catch (IOException ex) {
+            System.err.println(ex);
+        }
+
+    }
+    
+    /* coordinatorReq */
+    public static void coordinatorReq(String address) {
+
+        String json = "{\"addr\": \"" + localAddress + "\"}";
+
+        try {
+
+            URL url = new URL(address + "/coordinator");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+            conn.setDoOutput(true);
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", 
+                    "application/json; charset=UTF-8");
+            conn.setRequestProperty("Accept", "application/json");
+
+            OutputStreamWriter writer = new OutputStreamWriter(
+                    conn.getOutputStream());
             writer.write(json);
             writer.close();
 
@@ -348,6 +437,108 @@ public class Main {
 
     }
 
+    /* startElection */
+    public static void startElection() {
+
+    	boolean won = true;
+        for (Node n: network) {
+
+            if ( n.getID() > selfNode.getID() ) {
+                System.out.println("Sending election for " + n.getID());
+                /* */
+                try {
+
+                    URL url = new URL(n.getAddress() + "/election");
+                    HttpURLConnection conn = 
+                        (HttpURLConnection) url.openConnection();
+
+                    conn.setDoOutput(true);
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Content-Type", 
+                            "application/json; charset=UTF-8");
+                    conn.setRequestProperty("Accept", "application/json");
+
+                    if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                        System.out.println("OK");
+                        won = false;
+                        break; // Why this break? AAA
+                    } else {
+                        System.out.println("Not OK");
+                    }
+
+                } catch (IOException ex) {
+                    System.err.println(ex);
+                }
+            }
+        }
+
+        if (won) {
+            for (Node n: network) {
+                if ( n.getAddress().equals(localAddress) ) {
+                    System.out.println("Setting self as master");
+                    network.get( network.indexOf(n) ).setMaster(true) ;
+                    masterNode = network.get(network.indexOf(n));
+
+                    /*
+                    masterFinishCond = sync.NewCond(&sync.Mutex{})
+                    masterFinished = 0
+                    if syncAlgorithm == "centralized" {
+                        masterResourceControl = make(chan string)
+                        masterResourceData = make(chan string)
+                        masterCurNode = ""
+                        go centralizedResourceManager()
+                    }
+                    if shData != "" {
+                        masterSharedData = shData
+                    }
+                    */
+                } else {
+                    System.out.println("Sending coordinator for " 
+                            + n.getAddress());
+                    coordinatorReq(n.getAddress());
+                }
+            }
+
+            broadcastStart();
+            // if syncAlgorithm != "centralized" || masterNode != selfNode {
+            //     distributedRW()
+            // }
+        }
+    }
+
+    /* broadcastStart */
+    public static void broadcastStart() {
+        for (Node n: network) {
+            if (!n.getAddress().equals(localAddress)) {
+            //here Threads??? AAA
+                try {
+                    URL url = new URL(n.getAddress() + "/start");
+                    HttpURLConnection conn = 
+                        (HttpURLConnection) url.openConnection();
+
+                    conn.setDoOutput(true);
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Content-Type", 
+                            "application/json; charset=UTF-8");
+                    conn.setRequestProperty("Accept", "application/json");
+
+                    if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                        System.out.println("OK");
+                    } else {
+                        System.out.println("Not OK");
+                    }
+
+                } catch (IOException ex) {
+                    System.err.println(ex);
+                }
+            }
+        }
+    }
+
+    /* distributedRW */
+    public static void distributedRW() {
+    }
+
     public static void main(String[] args) {
 
         Options options = new Options();
@@ -357,7 +548,7 @@ public class Main {
         try {
 
             CommandLine line = parser.parse(options, args);
-            if ( line.hasOption( "port" ) ) {
+            if ( line.hasOption("port") ) {
                 port = Integer.parseInt( line.getOptionValue("port") );
             }
 
@@ -372,11 +563,15 @@ public class Main {
             server = HttpServer.create(new InetSocketAddress(ia, port) ,0);
 
             /* GET */
-            //server.createContext("/read", new ReadCtrl() );
+            server.createContext("/election", new ElectionCtrl() );
+            server.createContext("/start", new StartCtrl() );
+            server.createContext("/read", new ReadCtrl() );
+
             /* POST */
             server.createContext("/join", new JoinCtrl() );
             server.createContext("/network/update", new NetworkUpdateCtrl() );
-            server.createContext("/write", new WriteCtrl() );
+            server.createContext("/coordinator", new CoordinatorCtrl() );
+            //server.createContext("/write", new WriteCtrl() );
 
             /* Listener */
             server.setExecutor(Executors.newFixedThreadPool(20));
@@ -387,6 +582,7 @@ public class Main {
             localAddress = server.getAddress().toString();
             localAddress = "http://" + localAddress.substring(1, localAddress.length());
             network.add(new Node(0, localAddress, false));
+            selfNode = new Node(0, localAddress, false);
 
         } catch (BindException ex) {
             System.err.println("Port " + port + " is already in use" );
@@ -403,11 +599,13 @@ public class Main {
             String line = in.nextLine();
 
             String[] s = line.split("\\s");
-            
+
             if ( s[0].equals("join") ) {
 
                 joinReq(s[1] + "/join");
-                
+                // update here selfNode AAAA
+                selfNode = network.get(network.size()-1);
+
             } else if ( s[0].equals("exit") || s[0].equals("signoff") ) {
 
                 for (Node n: network) {
@@ -417,10 +615,8 @@ public class Main {
                     }
                 }
 
-                listNodes();
-
                 for (Node n: network) {
-                    System.out.println("-> " + n.getAddress());
+                    //System.out.println("-> " + n.getAddress());
                     networkUpdateReq(n.getAddress());
                 }
 
@@ -435,9 +631,9 @@ public class Main {
             } else if ( s[0].equals("list") ) {
                 listNodes();
             } else if ( s[0].equals("start") ) {
-                // start
+                startElection();
             } else if ( s[0].equals("42") ) {
-                System.out.println("Die Antwort nach dem Leben, dem " +  
+                System.out.println("Die Antwort nach dem Leben, dem " +
                                    "Universum und allem");
             } else if ( !s[0].equals("") ) {
                 System.out.println("Unknown command");
