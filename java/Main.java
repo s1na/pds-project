@@ -23,6 +23,7 @@ import java.net.BindException;
 import java.net.UnknownHostException;
 
 import java.util.Scanner;
+import java.util.Random;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.concurrent.Executor;
@@ -35,9 +36,11 @@ import java.util.HashMap;
 import java.text.SimpleDateFormat;
 import java.io.Reader;
 import java.io.InputStream;
+import java.io.ByteArrayInputStream;
 import java.io.OutputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.lang.InterruptedException;
 import java.io.IOException;
 import java.io.BufferedReader;
 import java.lang.reflect.Type;
@@ -70,11 +73,13 @@ public class Main {
     public static String masterResourceData = "";
     public static String masterCurNode = "";
     public static String masterSharedData = "";
+    public static String shData = "";
 
     /* Default values for the parameters */
     public static String syncAlgorithm = "centralized";
     public static String networkInterface = "eth0";
     public static int port = 8080;
+    public static int accessStatus;
 
     static String convertStreamToString(java.io.InputStream is) {
             java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
@@ -273,12 +278,14 @@ public class Main {
 
             System.out.println("Start distributed read and write");
 
-            /*
-            if (syncAlgorithm != "centralized" || !masterNode.equals(selfNode)
-                && !startedDRW) {
+            System.out.println( !syncAlgorithm.equals("centralized") );
+            System.out.println( !masterNode.equals(selfNode) );
+
+            if (!syncAlgorithm.equals("centralized") || 
+                    !masterNode.equals(selfNode)) {
                 distributedRW();
+                System.out.println("inside");
             }
-            */
 
             exchange.sendResponseHeaders(200, 0);
             exchange.close();
@@ -302,6 +309,8 @@ public class Main {
             HashMap r = gson.fromJson(reader, listType);
 
             masterSharedData = r.get("data").toString();
+
+            /* Print code here */
             System.out.println(masterSharedData);
 
             String response = new Gson().toJson(data);
@@ -429,7 +438,6 @@ public class Main {
             OutputStream os = exchange.getResponseBody();
             os.write(response.getBytes());
             os.flush();
-
             exchange.close();
 
         }
@@ -464,7 +472,8 @@ public class Main {
                 InputStream is = conn.getInputStream();
                 //System.out.println(convertStreamToString(is));
                 Gson gson = new Gson();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(is));
 
                 Type listType = new TypeToken<ArrayList<Node>>() { }.getType();
                 ArrayList<Node> net = gson.fromJson(reader, listType);
@@ -483,9 +492,16 @@ public class Main {
 
     /* readDataReq */
     /* receive as a parameter the master node */
-    public static String readDataReq(String address) {
+    public static InputStream readDataReq(String address) {
 
-        String answer = "";
+        String exampleString = "";
+        InputStream answer = null;
+
+        try {
+            answer = new ByteArrayInputStream(exampleString.getBytes("UTF-8"));
+        } catch (IOException ex ) {
+            System.err.println(ex);
+        }
 
         try {
 
@@ -502,11 +518,11 @@ public class Main {
 
                 System.out.println("OK");
                 InputStream is = conn.getInputStream();
-                answer = convertStreamToString(is);
+                //answer = convertStreamToString(is);
+                return is;
 
             } else {
                 System.out.println("No response code");
-                answer = "";
             }
 
         } catch (IOException ex) {
@@ -551,7 +567,6 @@ public class Main {
 
         return answer;
     }
-
 
     /* Send the network structure to other node */
     /* Different logic implementation in Go */
@@ -652,7 +667,7 @@ public class Main {
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
             conn.setDoOutput(true);
-            conn.setRequestMethod("POST");
+            conn.setRequestMethod("GET");
             conn.setRequestProperty("Content-Type",
                     "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
@@ -672,7 +687,8 @@ public class Main {
     public static boolean syncCentralizedRelease(){
         boolean response = false;
     	try{
-    		URL url = new URL(masterNode.getAddress() + "/sync/centralized/release");
+    		URL url = new URL(masterNode.getAddress() 
+                    + "/sync/centralized/release");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
             conn.setDoOutput(true);
@@ -736,20 +752,6 @@ public class Main {
                     network.get( network.indexOf(n) ).setMaster(true) ;
                     masterNode = network.get(network.indexOf(n));
 
-                    /*
-                    masterFinishCond = sync.NewCond(&sync.Mutex{})
-                    masterFinished = 0
-                    if syncAlgorithm == "centralized" {
-                        masterResourceControl = make(chan string)
-                        masterResourceData = make(chan string)
-                        masterCurNode = ""
-                        go centralizedResourceManager()
-                    }
-                    if shData != "" {
-                        masterSharedData = shData
-                    }
-                    */
-
                 } else {
                     System.out.println("Sending coordinator for "
                             + n.getAddress());
@@ -758,10 +760,70 @@ public class Main {
             }
 
             broadcastStart();
-            // if syncAlgorithm != "centralized" || masterNode != selfNode {
-            //     distributedRW()
-            // }
+            if (!syncAlgorithm.equals("centralized") || 
+                    !masterNode.equals(selfNode)) {
+                 distributedRW();
+            }
         }
+    }
+
+    private static class RAReqCtrl implements HttpHandler {
+
+        JSONResponse data = new JSONResponse(true, "", "");
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+
+            if(accessStatus !=2){
+                masterCurNode = selfNode.getAddress();
+                masterResCtrl = "lock";
+            } else {
+                masterCurNode = "";
+                masterResCtrl = "";
+            }
+
+            String response = new Gson().toJson(data);
+            exchange.sendResponseHeaders(200, response.length());
+
+            OutputStream os = exchange.getResponseBody();
+            os.write(response.getBytes());
+            os.flush();
+
+            exchange.close();
+        }
+    }
+
+
+    public static boolean syncRAReq(Node node, Lamport l){
+
+        boolean response = false;
+        Lamport lc = new Lamport(node.getID(), 0);
+        l.Increment();
+        int i = lc.compare(l);
+
+        try{
+            if(i == 1){
+                URL url = new URL(node.getAddress() + "/sync/ra/req");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+                conn.setDoOutput(true);
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", 
+                        "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept", "application/json");
+
+                if(conn.getResponseCode() == HttpURLConnection.HTTP_OK){
+                    response = true;
+                } else{
+                    response = false;
+                }
+            } else{
+                response = false;
+            }
+        } catch (IOException ex) {
+            System.err.println(ex);
+        }
+        return response;
     }
 
     /* broadcastStart */
@@ -796,41 +858,80 @@ public class Main {
     /* distributedRW */
     public static void distributedRW() {
 
-    	if(syncAlgorithm == "centralized"){
-
-    		boolean resBody = syncCentralizedReq();
-
-            if (resBody == true){
-            	//send read request
-            	String data = readDataReq(masterNode.getAddress());
-            	String nodeString = masterNode.getAddress() + " ";
-            	data = data + nodeString;
-            	writeDataReq(masterNode.getAddress(), data);
-            } else {
-                // return false;
-            }
-            resBody = syncCentralizedRelease();
-            if (resBody == true){
-            	System.out.println("Ok");
-            }
-    	}
-
-    }
-
-    /* distributedRW */
-    /*
-    public static void distributedRW() {
-
-        startedDRW = true;
         ArrayList<String> addedWords = new ArrayList<String>();
-        Date startingTime = Calendar.getInstance().getTime();
-        System.out.println( startingTime );
+        long startTime = System.nanoTime();
+        
+        while ( (System.nanoTime() - startTime)/1000000000.0 < 20) {
 
-        if (syncAlgorithm.equals("centralized")) {
-            //syncCentralizedReq(masterNode.getAddress());
+            try {
+                Random random = new Random();
+                int duration = random.nextInt(2000 - 1 + 1) + 1;
+                System.out.println("Sleeping for " + duration + " milliseconds");
+                Thread.sleep(duration);
+            } catch (InterruptedException ex) {
+                System.err.println(ex);
+            }
+
+            if(syncAlgorithm.equals("centralized")) {
+
+                boolean resBody = syncCentralizedReq();
+
+                if (resBody == true){
+                    //send read request
+                    InputStream is = readDataReq(masterNode.getAddress());
+
+                    Gson gson = new Gson();
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(is));
+                    Type listType = new TypeToken<HashMap>() { }.getType();
+                    HashMap data = gson.fromJson(reader, listType);
+
+                    shData = data.get("data").toString();
+
+                    String nodeString = masterNode.getAddress() + " ";
+                    shData = shData + nodeString;
+
+                    System.out.println(shData);
+
+                    writeDataReq(masterNode.getAddress(), shData);
+
+                } else {
+                    // return false;
+                }
+                resBody = syncCentralizedRelease();
+                if (resBody == true){
+                    System.out.println("Ok");
+                }
+
+        	} else if (syncAlgorithm == "ra"){
+        		
+        		Lamport lc = new Lamport(selfNode.getID(), 0);
+        		//Lamport accessClock = new Lamport(0, 0);
+        		
+                boolean lock = false;
+        		//boolean lock;
+        		accessStatus = 1;
+        		//accessClock = lc;
+        		
+        		//aquire lock from all other nodes from network
+        		for (Node n: network){
+        			if(n.getAddress() != selfNode.getAddress()){
+        				lock = syncRAReq(n, lc);
+        			}
+        		}
+        		if(lock == true){
+        			accessStatus = 2;//lock aquired
+        		}
+
+        		InputStream is = readDataReq(masterNode.getAddress());
+                String data = getString(is);
+            	String nodeString = selfNode.getAddress() + " ";
+            	data = data + nodeString;
+            	//writeDataReq(masterNode.getAddress(), data);
+            	accessStatus = 0;//release lock
+        	}
         }
     }
-    */
 
     public static void main(String[] args) {
 
@@ -885,8 +986,6 @@ public class Main {
 
             /* Listener */
             server.setExecutor(Executors.newFixedThreadPool(20));
-            //server.setExecutor(Executors.newCachedThreadPool());
-
             server.start();
 
             localAddress = server.getAddress().toString();
